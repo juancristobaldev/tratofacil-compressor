@@ -52,4 +52,5 @@ COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
 
 # iniciar app
-CMD ["node", "dist/main"]
+# iniciar app
+CMD ["node", "dist/main.js"]
