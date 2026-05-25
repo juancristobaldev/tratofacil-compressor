@@ -1,0 +1,39 @@
+{
+  "name": "media-processor",
+  "version": "0.0.1",
+  "description": "",
+  "author": "",
+  "private": true,
+  "license": "UNLICENSED",
+  "scripts": {
+    "build": "nest build",
+    "start": "nest start",
+    "start:dev": "nest start --watch",
+    "start:prod": "node dist/main",
+    "postinstall": "prisma generate"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.850.0",
+    "@nestjs/bull": "^11.0.2",
+    "@nestjs/common": "^11.0.1",
+    "@nestjs/config": "^4.0.2",
+    "@nestjs/core": "^11.0.1",
+    "@nestjs/platform-express": "^11.0.1",
+    "@nestjs/schedule": "^6.1.0",
+    "@prisma/client": "^5.22.0",
+    "bull": "^4.16.5",
+    "ioredis": "^5.6.1",
+    "prisma": "^5.22.0",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.1",
+    "sharp": "^0.33.5"
+  },
+  "devDependencies": {
+    "@nestjs/cli": "^11.0.0",
+    "@nestjs/schematics": "^11.0.0",
+    "@nestjs/testing": "^11.0.1",
+    "@types/express": "^5.0.0",
+    "@types/node": "^22.10.5",
+    "typescript": "^5.7.2"
+  }
+}

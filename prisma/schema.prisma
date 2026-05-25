@@ -1,0 +1,45 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum ImageStatus {
+  PENDING
+  COMPRESSED
+  FAILED
+}
+
+enum ImageType {
+  PRODUCT
+  CATEGORY
+  SERVICE
+  LOGO
+  MARKETING
+  KYC_DNI
+  KYC_SELFIE
+  ADS
+  CERTIFICATE
+  CHAT
+}
+
+model Image {
+  id              Int         @id @default(autoincrement())
+  key             String      @unique
+  compressedKey   String?
+  originalKey     String?
+  status          ImageStatus @default(PENDING)
+  type            ImageType
+  mimeType        String?
+  extension       String?
+  width           Int?
+  height          Int?
+  originalSize    Int?
+  compressedSize  Int?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+  deleteOriginalAt DateTime?
+}
