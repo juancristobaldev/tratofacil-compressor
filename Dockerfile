@@ -33,6 +33,8 @@ RUN apk add --no-cache openssl
 
 # solo dependencias de producción
 COPY package*.json ./
+COPY prisma ./prisma
+
 RUN npm ci --omit=dev
 
 # copiar build y prisma generado
