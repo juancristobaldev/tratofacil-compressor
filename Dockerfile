@@ -10,24 +10,24 @@ RUN apk add --no-cache openssl
 # copiar manifests
 COPY package*.json ./
 
-# 👇 prisma debe existir antes de npm ci
+# prisma antes de npm ci
 COPY prisma ./prisma
 
-# instalar dependencias
+# instalar deps
 RUN npm ci
 
-# copiar código fuente
+# copiar código
 COPY tsconfig.json nest-cli.json ./
 COPY src ./src
 
-# generar cliente prisma
+# generar prisma
 RUN npx prisma generate
 
-# build nestjs
+# build nest
 RUN npm run build
 
 # =========================
-# RUNTIME (PRODUCCIÓN)
+# RUNTIME
 # =========================
 FROM node:20-alpine
 
@@ -35,22 +35,18 @@ WORKDIR /app
 
 RUN apk add --no-cache openssl
 
-# copiar manifests
+ENV NODE_ENV=production
+
+# copiar package
 COPY package*.json ./
 
-# 👇 prisma también debe existir aquí
+# copiar prisma
 COPY prisma ./prisma
 
-# instalar solo prod deps
-RUN npm ci --omit=dev
+# copiar node_modules completos
+COPY --from=builder /app/node_modules ./node_modules
 
-# copiar build compilado
+# copiar dist compilado
 COPY --from=builder /app/dist ./dist
 
-# copiar prisma client generado
-COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
-COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
-
-# iniciar app
-# iniciar app
 CMD ["node", "dist/main.js"]
