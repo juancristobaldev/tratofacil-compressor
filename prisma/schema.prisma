@@ -1,5 +1,10 @@
+// =========================================================
+// CONFIGURACIÓN GLOBAL
+// =========================================================
 generator client {
   provider = "prisma-client-js"
+  // Agrega esto para soportar tu PC y el servidor Linux (cPanel suele usar rhel)
+  binaryTargets = ["native", "rhel-openssl-1.0.x", "rhel-openssl-3.0.x"]
 }
 
 datasource db {
@@ -7,39 +12,985 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-enum ImageStatus {
+// =========================================================
+// ENUMS
+// =========================================================
+
+
+enum WithdrawalStatus {
+  PENDING           // Solicitado por el usuario
+  APPROVED          // Aprobado por admin (listo para nómina)
+  PROCESSED         // Enviado al banco (nómina generada)
+  COMPLETED         // Transferencia exitosa confirmada
+  REJECTED          // Rechazado (datos erróneos, etc.)
+  FAILED            // Falló en el banco
+}
+enum IdentityStatus {
+  PENDING           
+  APPROVED         
+
+  FAILED           
+}
+
+enum Role {
+  CLIENT
+  PROVIDER
+  ADMIN
+  CITY_ADMIN
+}
+
+
+
+enum PlanInterval {
+  MONTHLY
+  YEARLY
+}
+
+enum ProviderPlan {
+  FREE
+  TRATOFACIL_SRV_PRO
+  TRATOFACIL_SRV_PREMIUM
+}
+
+enum UserPlan {
+  FREE
+  TRATOFACIL_PUB_INITIAL
+  TRATOFACIL_PUB_PRO
+  TRATOFACIL_PUB_BUSINESS
+  TRATOFACIL_PUB_FULL
+}
+
+
+enum OrderStatus {
   PENDING
-  COMPRESSED
+  PROCESSING
+  COMPLETED
+  CANCELLED
+  FAILED
+  SUCCESS
+}
+
+enum PaymentProvider {
+  WEBPAY
+  MERCADOPAGO
+  TRANSFER
+  FLOW
+}
+
+enum PaymentStatus {
+  INITIATED
+  CONFIRMED
   FAILED
 }
 
-enum ImageType {
-  PRODUCT
-  CATEGORY
-  SERVICE
-  LOGO
-  MARKETING
-  KYC_DNI
-  KYC_SELFIE
-  ADS
-  CERTIFICATE
-  CHAT
+enum ScheduleStatus {
+  SCHEDULED
+  CONFIRMED
+  CANCELLED
 }
 
-model Image {
-  id              Int         @id @default(autoincrement())
-  key             String      @unique
-  compressedKey   String?
-  originalKey     String?
-  status          ImageStatus @default(PENDING)
-  type            ImageType
-  mimeType        String?
-  extension       String?
-  width           Int?
-  height          Int?
-  originalSize    Int?
-  compressedSize  Int?
-  createdAt       DateTime    @default(now())
-  updatedAt       DateTime    @updatedAt
-  deleteOriginalAt DateTime?
+enum RealtimeOrderStatus {
+  PENDING
+  QUOTED
+  ACCEPTED
+  IN_PROGRESS
+  COMPLETED
+  REJECTED
+  EXPIRED
+  CANCELLED
+}
+
+
+model Coupon {
+id Int @id @default(autoincrement())
+flowCouponId Int?
+name String @unique
+percent_off Decimal
+currency String?
+amount Int?
+created DateTime @default(now())
+duration Int
+times Int?
+max_redemptions Int
+expires DateTime 
+status Int
+redemtions Int
+scope String @default("SUBSCRIPTION")
+}
+// =========================================================
+// 1. USUARIOS
+// =========================================================
+
+model Withdrawal {
+  id              Int              @id @default(autoincrement())
+  userId          Int
+  user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  amount          Float
+  
+  // Snapshot bancario
+  bankName        String
+  accountNumber   String
+  accountType     String
+  rut             String
+  email           String
+  
+  status          WithdrawalStatus @default(PENDING) // APPROVED = Listo para Excel
+  
+  // ✅ RELACIONES INVERSAS PARA SABER QUÉ ÓRDENES PAGA ESTE RETIRO
+  orderProducts   OrderProduct[]
+  orderJobs       OrderJob[]
+  orders          Order[] // Servicios
+
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  @@index([userId])
+  @@index([status])
+}
+
+
+
+model User {
+  id           Int      @id @default(autoincrement())
+  username     String   @unique
+  email        String?   @unique
+  password     String
+  displayName  String?
+  location     String?
+  nicename     String
+  phone        String
+  url          String   @default("")
+  status       Int      @default(0)
+  registered   DateTime @default(now())
+  birthday     DateTime?
+  cardActive Boolean?
+  kycStatus Boolean?
+  deletedAt DateTime?
+  identitys UserIdentity[]
+  flowCustomerId String?  @unique// 👈 NUEVO CAMPO
+
+  emailVerified Boolean? @default(false)
+
+  creditCardType String?
+  last4CardDigits String?
+
+
+
+
+  activationKey String   @default("")
+  role          Role    @default(CLIENT)
+  
+  ads OrderAds[]
+
+  // --- RELACIONES DE PERFIL ---
+  provider      Provider?
+  
+  // ✅ Cuenta Bancaria Personal del Usuario
+  bankAccount   BankAccountUser?
+
+  // ✅ El usuario es dueño de sus productos y trabajos (Marketplace C2C)
+  products      Product[]
+  jobs          Job[]
+
+  // --- RELACIONES COMO COMPRADOR (CLIENTE) ---
+  orders        Order[]          @relation("ClientOrders")
+  productOrders OrderProduct[]   @relation("ClientProductOrders")
+  jobOrders     OrderJob[]       @relation("ClientJobOrders") // Órdenes que YO pagué (mis trabajos publicados)
+  planOrders    PlanOrder[]      @relation("UserPlanOrders")
+  marketplacePlanOrders PlanUserOrder[] @relation("marketplacePlanOrders")
+  
+  
+  withdrawals Withdrawal[]
+  workerJobOrders OrderJob[]     @relation("WorkerJobOrders") // ✅ Órdenes donde YO soy el trabajador elegido
+  
+  applications    JobApplication[] @relation("WorkerApplications")
+
+  reviewsGiven        ProviderReview[] @relation("ClientReviews")
+  productReviewsGiven ReviewsProduct[] @relation("ClientProductReviews")
+  jobReviewsGiven     ReviewsJob[]     @relation("ClientJobReviews")
+  realtimeOrdersAsClient OrderRealTime[] @relation("ClientRealtimeOrders")
+
+  // Ventas de productos realizadas por este usuario
+  productSales        OrderProduct[]   @relation("SellerProductOrders")
+  
+  // Reseñas recibidas por sus productos
+  productReviewsReceived ReviewsProduct[] @relation("SellerProductReviews")
+  
+  // Reseñas recibidas por sus trabajos (Jobs)
+  jobReviewsReceived     ReviewsJob[]     @relation("WorkerJobReviews")
+}
+
+
+// =========================================================
+// 2. CATEGORÍAS Y SERVICIOS
+// =========================================================
+model Category {
+  id          Int      @id @default(autoincrement())
+  name        String
+  slug        String   @unique
+  description String?
+  imageUrl    String?
+  position   Int
+  services Service[] @relation("CategoryServices")
+  parentId Int?
+  parent   Category?  @relation("CategoryHierarchy", fields: [parentId], references: [id])
+  children Category[] @relation("CategoryHierarchy")
+
+  orderAds OrderAds[]
+
+
+  @@index([parentId])
+}
+
+model ImageMarketingDuration {
+  id          Int      @id @default(autoincrement())
+  duration    Int      // Duración en segundos o milisegundos
+  
+  // Hacemos orientation obligatorio o con un default si siempre se requiere
+  orientation String   @default("HORIZONTAL") 
+  
+  // El tipo de contenido (marketing, ads, personal, etc.)
+  type        String   @default("marketing")
+
+  // REGLAS DE NEGOCIO A NIVEL DB:
+  // 1. Evita duplicados de la combinación orientation + type (Crucial para tu validación)
+  @@unique([orientation, type])
+  
+  // 2. Indexamos para búsquedas rápidas cuando filtres por estos campos
+  @@index([orientation, type])
+}
+
+
+model ImageMarketing {
+  id          Int      @id @default(autoincrement())
+  key         String
+  orientation String?
+  type        String  @default("marketing")
+  @@index([id,key])
+}
+
+model Service {
+  id          Int      @id @default(autoincrement())
+  name        String
+  slug        String   @unique
+  description String?
+  imageUrl    String?
+  categoryId  Int?
+  category    Category? @relation("CategoryServices", fields: [categoryId], references: [id], onDelete: Cascade)
+  ordersAds OrderAds[]
+  serviceProviders ServiceProvider[]
+}
+
+model ComissionServices {
+    id          Int      @id @default(autoincrement())
+    comissionMarketplace Float   @default(0.0)
+    comissionJob       Float   @default(0.0)
+}
+
+// =========================================================
+// 3. PROVEEDORES (SOLO SERVICIOS PROFESIONALES)
+// =========================================================
+model Provider {
+  id            Int  @id @default(autoincrement())
+  userId        Int  @unique
+  wcCategoryId  Int?
+
+  name      String
+  slug      String  @unique
+  location  String?
+  lat Float?
+  lng Float?
+  logoUrl   String?
+  isRealtimeActive Boolean @default(false)
+  priority  Int     @default(1) 
+  
+  
+  // Planes de suscripción
+ 
+
+  
+  rut       String?
+  bio       String?
+
+  // Cuenta Bancaria de Negocio (Separada de la personal)
+  bank       BankAccount?
+  
+  reviews       ProviderReview[]
+  certificates  ProviderCertificate[]
+  
+  // Provider mantiene SOLO Servicios
+  services      ServiceProvider[]
+  
+  // User Relationship
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  realtimeOrders OrderRealTime[]
+
+  hobbys Hobby[]
+  schedules ProviderSchedule[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model ProviderSchedule {
+  id         Int      @id @default(autoincrement())
+
+  providerId Int
+  provider   Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+
+  dayOfWeek  Int
+
+  slots      ProviderScheduleSlot[]
+
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([providerId, dayOfWeek])
+}
+
+model ProviderScheduleSlot {
+  id                 Int              @id @default(autoincrement())
+
+  providerScheduleId Int
+  schedule           ProviderSchedule @relation(fields: [providerScheduleId], references: [id], onDelete: Cascade)
+
+  time               String
+
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+
+  @@unique([providerScheduleId, time])
+}
+
+model Ads {
+  id         Int @id @default(autoincrement())
+  createdAt  DateTime @default(now())
+  expiredAt  DateTime?
+  orders     OrderAds[]
+}
+
+model OrderAds {
+  id     Int @id @default(autoincrement())
+  total  Float
+
+  adsId  Int?
+  ads    Ads? @relation(fields: [adsId], references: [id])
+  days       Int
+  status OrderStatus 
+  info String
+  image String
+
+  city String?
+
+  link String
+
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId Int
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+
+  payment   PaymentAd?
+
+  serviceId  Int?
+  service   Service? @relation(fields: [serviceId], references: [id])
+
+  categoryId Int?
+  category   Category? @relation(fields: [categoryId], references: [id])
+}
+
+
+model PaymentAd {
+  id Int @id @default(autoincrement())
+
+  orderAdId Int @unique
+  orderAd   OrderAds @relation(fields: [orderAdId], references: [id])
+
+
+
+  amount        Float
+  provider      PaymentProvider 
+
+  status        PaymentStatus   @default(INITIATED)
+  transactionId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model UserIdentity {
+  id            Int  @id @default(autoincrement())
+  dniFront String?
+  selfie  String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+    user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+status IdentityStatus
+  userId Int
+}
+
+model Hobby {
+  id          Int      @id @default(autoincrement())
+  name        String
+  providerId  Int
+  provider    Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// =========================================================
+// 4. SERVICE PROVIDER (Oferta Específica)
+// =========================================================
+model ServiceProvider {
+  id          Int @id @default(autoincrement())
+  serviceId   Int?
+  providerId  Int
+
+  slug         String  @unique
+  description  String?
+  price        Float?
+  commission   Float?
+  netAmount    Float?
+  hasHomeVisit Boolean @default(false)
+
+  orders Order[]
+  realtimeOrders OrderRealTime[]
+
+  service  Service?  @relation(fields: [serviceId], references: [id])
+  provider Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+
+  cities ServiceProviderOnCity[]
+
+  @@unique([serviceId, providerId])
+  @@index([providerId])
+  @@index([serviceId])
+}
+
+// =========================================================
+// 5. CIUDADES
+// =========================================================
+model ServiceProviderOnCity {
+  serviceProviderId Int
+  city              String 
+
+  serviceProvider ServiceProvider @relation(fields: [serviceProviderId], references: [id], onDelete: Cascade)
+
+  @@id([serviceProviderId, city])
+  @@index([city])
+}
+
+// =========================================================
+// 6. MARKETPLACE (PRODUCTOS - VINCULADOS A USER)
+// =========================================================
+model CategoryProduct {
+  id          Int      @id @default(autoincrement())
+  name        String
+  slug        String   @unique
+  description String?
+  shippingDisabled Boolean @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+   // RELACIÓN JERÁRQUICA
+  parentId Int?
+  parent   CategoryProduct?  @relation("CategoryProductHierarchy", fields: [parentId], references: [id])
+  children CategoryProduct[] @relation("CategoryProductHierarchy")
+
+
+  products    Product[]
+}
+
+model Product {
+  id               Int       @id @default(autoincrement())
+  name             String
+  slug             String    @unique
+  description      String?
+  specifications   Json?               
+  price            Float               
+  stock            Int       @default(0)
+   
+  location        String?
+
+  images             ProductImage[]
+  deliveryCondition  ConditionDelivery? 
+
+  // ✅ El producto pertenece al Usuario (Vendedor)
+  userId         Int
+  user           User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+   
+  categoryProductId Int
+  categoryProduct   CategoryProduct    @relation(fields: [categoryProductId], references: [id], onDelete: Cascade)
+
+  orders            OrderProduct[]
+  reviews           ReviewsProduct[]
+
+
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+}
+
+model ProductImage {
+  id        Int      @id @default(autoincrement())
+  url       String   
+  productId Int
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@index([productId])
+}
+
+// =========================================================
+// 7. REVIEWS Y CERTIFICADOS
+// =========================================================
+model ProviderReview {
+  id        Int      @id @default(autoincrement())
+  rating    Int
+  comment   String?
+  createdAt DateTime @default(now())
+
+  clientId Int
+  client   User @relation("ClientReviews", fields: [clientId], references: [id], onDelete: Cascade)
+
+  providerId Int
+  provider   Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+
+  orderId Int?   @unique
+  order   Order? @relation(fields: [orderId], references: [id], onDelete: Cascade)
+}
+
+model ProviderCertificate {
+  id          Int      @id @default(autoincrement())
+  providerId  Int
+  title       String
+  institution String?
+  year        Int?
+  fileUrl     String
+  verified    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  provider Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+}
+
+// =========================================================
+// 8. BANK ACCOUNTS
+// =========================================================
+
+// Cuenta para la entidad PROVEEDOR (Negocio Formal)
+model BankAccount {
+  id            Int     @id @default(autoincrement())
+  bankName      String
+  accountNumber String
+  accountType   String
+  rut           String?
+  email         String?
+
+  providerId Int      @unique
+  provider   Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ✅ Cuenta para el USUARIO (Persona natural / Vendedor)
+model BankAccountUser {
+  id            Int     @id @default(autoincrement())
+  bankName      String
+  accountNumber String
+  accountType   String
+  rut           String?
+  email         String?
+
+  userId Int  @unique
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// =========================================================
+// 9. ÓRDENES Y PAGOS
+// =========================================================
+
+model PlanOrder {
+  id        Int          @id @default(autoincrement())
+  userId    Int
+  interval  PlanInterval @default(MONTHLY)
+  total     Float
+  status    OrderStatus  @default(PENDING)
+
+  
+  plan      ProviderPlan
+  planActive      Boolean      @default(true)
+  planEndsAt      DateTime     
+  subscriptionFlowId String
+
+
+  payment   PaymentPlan? @relation(name: "PaymentPlan_PlanOrder")
+
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  
+  user User @relation("UserPlanOrders", fields: [userId], references: [id])
+}
+
+model PlanUserOrder {
+  id        Int          @id @default(autoincrement())
+  userId    Int
+  plan      UserPlan
+  interval  PlanInterval @default(MONTHLY)
+  total     Float
+  status    OrderStatus  @default(PENDING)
+
+  planActive      Boolean      @default(true)
+  planEndsAt      DateTime?     
+  subscriptionFlowId String?
+  
+  payment   PaymentPlan? @relation(name: "PaymentPlan_PlanUserOrder")
+
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  user User @relation("marketplacePlanOrders", fields: [userId], references: [id])
+}
+
+
+model Order {
+  id Int @id @default(autoincrement())
+
+  clientId Int
+  client   User @relation("ClientOrders", fields: [clientId], references: [id], onDelete: Cascade)
+
+  total      Float
+  commission Float
+
+  status     OrderStatus @default(PENDING)
+  wcOrderId  Int?
+  wcOrderKey String?
+
+  serviceProviderId Int?
+  serviceProvider   ServiceProvider? @relation(fields: [serviceProviderId], references: [id], onDelete: Cascade)
+
+  scheduledAt DateTime?
+  scheduleStatus ScheduleStatus @default(SCHEDULED)
+  scheduleConfirmedAt DateTime?
+  scheduleCancelledAt DateTime?
+  clientAddress String?
+  clientLat Float?
+  clientLng Float?
+  clientPlaceId String?
+  requestStatus String @default("PENDING")
+  requestRespondedAt DateTime?
+
+
+
+
+  payment Payment?
+  review  ProviderReview?
+
+  withdrawalId   Int?
+  withdrawal     Withdrawal? @relation(fields: [withdrawalId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model OrderRealTime {
+  id Int @id @default(autoincrement())
+
+  clientId Int
+  client User @relation("ClientRealtimeOrders", fields: [clientId], references: [id], onDelete: Cascade)
+
+  providerId Int
+  provider Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+
+  serviceProviderId Int
+  serviceProvider ServiceProvider @relation(fields: [serviceProviderId], references: [id], onDelete: Cascade)
+
+  status RealtimeOrderStatus @default(PENDING)
+
+  clientDescription String?
+  clientAddress String?
+  clientLat Float
+  clientLng Float
+  clientPlaceId String?
+
+  quotedPrice Int?
+  quotedHours Int?
+  quotedTransport Int?
+
+  providerAddress String?
+  providerLat Float?
+  providerLng Float?
+
+  respondedAt DateTime?
+  startedAt DateTime?
+  completedAt DateTime?
+  expiresAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([providerId, status, createdAt])
+  @@index([clientId, createdAt])
+  @@index([serviceProviderId, status])
+}
+  
+model ShippingInfo {
+  id        Int      @id @default(autoincrement())
+  
+  region    String
+  commune   String
+  street    String
+  number    String
+  dept      String?  
+  reference String?  
+  phone     String
+
+  orderProductId Int           @unique
+  orderProduct   OrderProduct @relation(fields: [orderProductId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model OrderProduct {
+  id             Int       @id @default(autoincrement())
+  
+  clientId       Int
+  client         User      @relation("ClientProductOrders", fields: [clientId], references: [id], onDelete: Cascade)
+  
+  // ✅ El Vendedor es el Usuario (antes providerId)
+  sellerId       Int
+  seller         User      @relation("SellerProductOrders", fields: [sellerId], references: [id], onDelete: Cascade)
+  
+  productId      Int
+  product        Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  
+  quantity       Int       @default(1)
+  unitPrice      Float
+  commission     Float
+  total          Float
+  status         OrderStatus @default(PENDING)
+  shippingInfo   ShippingInfo?
+  shippingCompany String?  
+  trackingCode    String? 
+  payment         PaymentProduct?
+
+  withdrawalId   Int?
+  withdrawal     Withdrawal? @relation(fields: [withdrawalId], references: [id])
+
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+}
+
+model ConditionDelivery {
+  id                  Int       @id @default(autoincrement())
+  productId           Int       @unique
+  product             Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  deliveryType          String   
+  shippingPayer         String   
+  maxDispatchDays       Int      
+  confirmationDeadline DateTime 
+
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  @@index([productId])
+}
+
+model KycSession {
+  id        String   @id @default(uuid())
+  userId    Int
+  status    String   @default("pending")
+  expiresAt DateTime
+}
+
+model Payment {
+  id Int @id @default(autoincrement())
+
+  orderId Int   @unique
+  order   Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  amount        Float
+  provider      PaymentProvider
+  status        PaymentStatus   @default(INITIATED)
+  transactionId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model PaymentProduct {
+  id Int @id @default(autoincrement())
+
+  orderProductId Int          @unique
+  orderProduct   OrderProduct @relation(fields: [orderProductId], references: [id], onDelete: Cascade)
+
+  amount        Float
+  provider      PaymentProvider
+  status        PaymentStatus   @default(INITIATED)
+  transactionId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model PaymentJob {
+  id Int @id @default(autoincrement())
+
+  orderJobId    Int         @unique
+  orderJob      OrderJob    @relation(fields: [orderJobId], references: [id], onDelete: Cascade)
+
+  amount        Float
+  provider      PaymentProvider
+  status        PaymentStatus   @default(INITIATED)
+  transactionId String?
+
+  flowId Int?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model PaymentPlan {
+  id Int @id @default(autoincrement())
+
+  planOrderId     Int? @unique
+  planUserOrderId Int? @unique
+
+  planOrder PlanOrder? @relation("PaymentPlan_PlanOrder", fields: [planOrderId], references: [id], map: "fk_payment_plan_plan_order")
+
+  planUserOrder PlanUserOrder? @relation("PaymentPlan_PlanUserOrder", fields: [planUserOrderId], references: [id], map: "fk_payment_plan_plan_user_order")
+
+  amount        Float
+  provider      PaymentProvider
+  status        PaymentStatus @default(INITIATED)
+  
+  transactionId String?
+
+  flowId Int?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+
+
+// =========================================================
+// 10. VERIFICACIÓN DE EMAIL
+// =========================================================
+model EmailVerification {
+  id        Int      @id @default(autoincrement())
+  email     String?   @unique
+  code      String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+}
+
+// =========================================================
+// 11. TRABAJOS Y RESEÑAS (VINCULADOS A USER)
+// =========================================================
+
+model Job {
+  id          Int      @id @default(autoincrement())
+  
+  // ✅ El trabajo pertenece al Usuario (Cliente que lo pide)
+  userId      Int
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  location        String?
+
+
+  title       String
+  description String?
+  price       Float?    
+   
+  orders      OrderJob[]
+  reviews     ReviewsJob[]
+  
+  // ✅ NUEVO: Lista de postulantes a este trabajo
+  applications JobApplication[]
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// ✅ NUEVO MODELO: Postulaciones a Trabajos
+model JobApplication {
+  id        Int      @id @default(autoincrement())
+  message   String?
+  createdAt DateTime @default(now())
+  
+  // Estado simple: PENDING, SELECTED, REJECTED
+  status    String   @default("PENDING") 
+
+  jobId     Int
+  job       Job      @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  workerId  Int
+  worker    User     @relation("WorkerApplications", fields: [workerId], references: [id], onDelete: Cascade)
+
+  @@unique([jobId, workerId]) // Un usuario solo puede postular una vez al mismo trabajo
+}
+
+model OrderJob {
+  id        Int         @id @default(autoincrement())
+  jobId     Int
+  clientId  Int
+  
+  commission Float?      // ✅ NUEVO: La comisión de la plataforma (Ej: 10.000)
+
+  // ✅ NUEVO: Trabajador seleccionado (se llena al pagar)
+  workerId  Int?        
+  worker    User?       @relation("WorkerJobOrders", fields: [workerId], references: [id], onDelete: SetNull)
+
+  status    OrderStatus @default(PENDING)
+  total     Float?      
+
+  job       Job         @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  client    User        @relation("ClientJobOrders", fields: [clientId], references: [id], onDelete: Cascade)
+  
+  payment   PaymentJob?
+
+  withdrawalId   Int?
+  withdrawal     Withdrawal? @relation(fields: [withdrawalId], references: [id])
+
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+}
+
+model ReviewsJob {
+  id        Int      @id @default(autoincrement())
+  rating    Int
+  comment   String?
+  createdAt DateTime @default(now())
+
+  jobId     Int
+  job       Job      @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  // ✅ Se califica al Trabajador (User), no al Provider
+  workerId  Int
+  worker    User     @relation("WorkerJobReviews", fields: [workerId], references: [id], onDelete: Cascade)
+
+  clientId  Int
+  client    User     @relation("ClientJobReviews", fields: [clientId], references: [id], onDelete: Cascade)
+}
+
+model ReviewsProduct {
+  id        Int      @id @default(autoincrement())
+  rating    Int
+  comment   String?
+  createdAt DateTime @default(now())
+
+  productId Int
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  // ✅ Se califica al Vendedor (User), no al Provider
+  sellerId  Int
+  seller    User     @relation("SellerProductReviews", fields: [sellerId], references: [id], onDelete: Cascade)
+
+  clientId  Int
+  client    User     @relation("ClientProductReviews", fields: [clientId], references: [id], onDelete: Cascade)
 }

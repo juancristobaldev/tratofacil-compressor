@@ -2,21 +2,40 @@ name: Deploy Media Processor
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v4
-      - name: Deploy to VPS
-        uses: appleboy/ssh-action@v1
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
           script: |
+            set -e
+
+            echo "📦 Updating repo..."
             cd /root/tratofacil/media-processor
-            git pull
+            git fetch --all
+            git reset --hard origin/main
+
+            echo "🔐 Creating .env..."
+            cat > .env <<EOF
+            DATABASE_URL=${{ secrets.DATABASE_URL }}
+            OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
+            EOF
+
+            echo "🐳 Building container..."
+            cd /root/tratofacil
             docker compose build media-processor
+
+            echo "🚀 Restarting service..."
             docker compose up -d --no-deps media-processor
+
+            echo "🧹 Cleaning images..."
+            docker image prune -f
