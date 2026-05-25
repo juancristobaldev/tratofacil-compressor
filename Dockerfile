@@ -49,4 +49,4 @@ COPY --from=builder /app/node_modules ./node_modules
 # copiar dist compilado
 COPY --from=builder /app/dist ./dist
 
-CMD ["node", "dist/main.js"]
+CMD ["node", "dist/src/main.js"]
