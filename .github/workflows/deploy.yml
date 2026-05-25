@@ -24,11 +24,7 @@ jobs:
             git fetch --all
             git reset --hard origin/main
 
-            echo "🔐 Creating .env..."
-            cat > .env <<EOF
-            DATABASE_URL=${{ secrets.DATABASE_URL }}
-            OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
-            EOF
+            
 
             echo "🐳 Building container..."
             cd /root/tratofacil
