@@ -21,7 +21,7 @@ COPY src ./src
 RUN npx prisma generate
 RUN npm run build
 
-
+#
 # =========================
 # RUNTIME (PRODUCCIÓN)
 # =========================
