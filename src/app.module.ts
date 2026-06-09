@@ -26,6 +26,9 @@ import { HealthController } from './health/health.controller';
           port: configService.get<number>('REDIS_PORT', 6379),
           password: configService.get<string>('REDIS_PASSWORD'),
           db: configService.get<number>('REDIS_DB', 0),
+          enableOfflineQueue: false,
+          connectTimeout: 10000,
+          maxRetriesPerRequest: null,
         },
         prefix: configService.get<string>('BULL_PREFIX', 'tratofacil'),
         settings: {
