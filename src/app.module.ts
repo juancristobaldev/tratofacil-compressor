@@ -8,10 +8,10 @@ import { FilesModule } from './files/files.module';
 import { MediaModule } from './media/media.module';
 import { TasksModule } from './tasks/tasks.module';
 import { HealthController } from './health/health.controller';
+import { QueueModule } from './queue/queue.module';
 
 @Module({
   imports: [
-    BullModule.registerQueue({ name: 'media' }),
     ScheduleModule.forRoot(),
     ConfigModule.forRoot({
       isGlobal: true,
@@ -22,21 +22,16 @@ import { HealthController } from './health/health.controller';
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => ({
         redis: {
-          host: configService.get<string>('REDIS_HOST', 'localhost'),
-          port: configService.get<number>('REDIS_PORT', 6379),
+          host: configService.get<string>('REDIS_HOST'),
+          port: Number(configService.get<string>('REDIS_PORT')),
           password: configService.get<string>('REDIS_PASSWORD'),
-          db: configService.get<number>('REDIS_DB', 0),
-          enableOfflineQueue: false,
-          connectTimeout: 10000,
+          db: Number(configService.get<string>('REDIS_DB') || 0),
+          enableOfflineQueue: true,
           maxRetriesPerRequest: null,
-        },
-        prefix: configService.get<string>('BULL_PREFIX', 'tratofacil'),
-        settings: {
-          stalledInterval: 120000,
-          maxStalledCount: 3,
         },
       }),
     }),
+    QueueModule,
     PrismaModule,
     S3Module,
     FilesModule,
